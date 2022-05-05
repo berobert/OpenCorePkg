@@ -172,7 +172,9 @@ OcGetAmplifierGain (
 {
   EFI_STATUS  Status1;
   EFI_STATUS  Status2;
+  EFI_STATUS  Status3;
   UINTN       Size;
+  UINT8       StartupMute;
 
   //
   // Get mute setting and raw codec gain setting (all versions of macOS).
@@ -185,12 +187,27 @@ OcGetAmplifierGain (
                    &Size,
                    RawGain
                    );
-  if (!EFI_ERROR (Status1)) {
-    *Muted    = (*RawGain & APPLE_SYSTEM_AUDIO_VOLUME_MUTED) != 0;
-    *RawGain &= APPLE_SYSTEM_AUDIO_VOLUME_VOLUME_MASK;
-  } else {
+  if (EFI_ERROR (Status1) || (Size != sizeof (*RawGain))) {
     *Muted   = FALSE;
     *RawGain = 0;
+  } else {
+    *Muted    = (*RawGain & APPLE_SYSTEM_AUDIO_VOLUME_MUTED) != 0;
+    *RawGain &= APPLE_SYSTEM_AUDIO_VOLUME_VOLUME_MASK;
+  }
+
+  if (!*Muted) {
+    Size    = sizeof (StartupMute);
+    Status3 = gRT->GetVariable (
+                     APPLE_STARTUP_MUTE_VARIABLE_NAME,
+                     &gAppleBootVariableGuid,
+                     NULL,
+                     &Size,
+                     &StartupMute
+                     );
+    if (!EFI_ERROR (Status3) && (Size == sizeof (StartupMute)) && (StartupMute != 0)) {
+      *Muted = TRUE;
+      DEBUG ((DEBUG_INFO, "OCAU: Applying StartupMute\n"));
+    }
   }
 
   DEBUG ((
@@ -213,7 +230,7 @@ OcGetAmplifierGain (
                    &Size,
                    DecibelGain
                    );
-  if (EFI_ERROR (Status2)) {
+  if (EFI_ERROR (Status2) || (Size != sizeof (*DecibelGain))) {
     *DecibelGain = OC_AUDIO_DEFAULT_GAIN;
   }
 

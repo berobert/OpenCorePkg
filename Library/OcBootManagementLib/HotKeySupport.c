@@ -8,7 +8,9 @@
 
 #include <Guid/AppleVariable.h>
 #include <IndustryStandard/AppleCsrConfig.h>
+
 #include <Protocol/AppleKeyMapAggregator.h>
+#include <Protocol/OcBootEntry.h>
 
 #include <Library/BaseLib.h>
 #include <Library/MemoryAllocationLib.h>
@@ -22,6 +24,68 @@
 #include <Library/OcTypingLib.h>
 #include <Library/UefiBootServicesTableLib.h>
 #include <Library/UefiRuntimeServicesTableLib.h>
+
+typedef struct {
+  UINTN                 NumKeys;
+  APPLE_MODIFIER_MAP    Modifiers;
+  APPLE_KEY_CODE        *Keys;
+} BEP_APPLY_HOTKEYS_CONTEXT;
+
+STATIC
+BOOLEAN
+EFIAPI
+InternalApplyHotkeysFromProtocol (
+  IN OUT  OC_PICKER_CONTEXT       *PickerContext,
+  IN      OC_BOOT_ENTRY_PROTOCOL  *BootEntryProtocol,
+  IN      VOID                    *Context
+  )
+{
+  BEP_APPLY_HOTKEYS_CONTEXT  *ApplyHotkeysContext;
+
+  ASSERT (Context != NULL);
+  ApplyHotkeysContext = Context;
+
+  if (BootEntryProtocol->HotkeyAction) {
+    BootEntryProtocol->HotkeyAction (
+                         PickerContext,
+                         ApplyHotkeysContext->NumKeys,
+                         ApplyHotkeysContext->Modifiers,
+                         ApplyHotkeysContext->Keys
+                         );
+  }
+
+  return TRUE;
+}
+
+STATIC
+VOID
+InternalApplyBootEntryProtocolHotkeys (
+  IN OUT OC_PICKER_CONTEXT  *PickerContext,
+  IN UINTN                  NumKeys,
+  IN APPLE_MODIFIER_MAP     Modifiers,
+  IN APPLE_KEY_CODE         *Keys
+  )
+{
+  EFI_HANDLE                 *EntryProtocolHandles;
+  UINTN                      EntryProtocolHandleCount;
+  BEP_APPLY_HOTKEYS_CONTEXT  ApplyHotkeysContext;
+
+  ApplyHotkeysContext.NumKeys   = NumKeys;
+  ApplyHotkeysContext.Modifiers = Modifiers;
+  ApplyHotkeysContext.Keys      = Keys;
+
+  OcLocateBootEntryProtocolHandles (&EntryProtocolHandles, &EntryProtocolHandleCount);
+
+  OcConsumeBootEntryProtocol (
+    PickerContext,
+    EntryProtocolHandles,
+    EntryProtocolHandleCount,
+    InternalApplyHotkeysFromProtocol,
+    &ApplyHotkeysContext
+    );
+
+  OcFreeBootEntryProtocolHandles (&EntryProtocolHandles);
+}
 
 //
 // Get hotkeys pressed at load
@@ -42,10 +106,13 @@ OcLoadPickerHotKeys (
   BOOLEAN  HasEscape;
   BOOLEAN  HasZero;
   BOOLEAN  HasOption;
-  BOOLEAN  HasKeyP;
   BOOLEAN  HasKeyR;
   BOOLEAN  HasKeyX;
 
+  //
+  // Waiting for boot chime to finish around here, even as a separate option, is
+  // problematic because the chime does not play if muted or below minimum audible gain.
+  //
   if (Context->TakeoffDelay > 0) {
     gBS->Stall (Context->TakeoffDelay);
   }
@@ -76,18 +143,16 @@ OcLoadPickerHotKeys (
   // We are slightly more permissive than AppleBds, as we permit combining keys.
   //
 
+  InternalApplyBootEntryProtocolHotkeys (Context, NumKeys, Modifiers, Keys);
+
   HasCommand = (Modifiers & (APPLE_MODIFIER_LEFT_COMMAND | APPLE_MODIFIER_RIGHT_COMMAND)) != 0;
   HasOption  = (Modifiers & (APPLE_MODIFIER_LEFT_OPTION  | APPLE_MODIFIER_RIGHT_OPTION)) != 0;
   HasEscape  = OcKeyMapHasKey (Keys, NumKeys, AppleHidUsbKbUsageKeyEscape);
   HasZero    = OcKeyMapHasKey (Keys, NumKeys, AppleHidUsbKbUsageKeyZero);
-  HasKeyP    = OcKeyMapHasKey (Keys, NumKeys, AppleHidUsbKbUsageKeyP);
   HasKeyR    = OcKeyMapHasKey (Keys, NumKeys, AppleHidUsbKbUsageKeyR);
   HasKeyX    = OcKeyMapHasKey (Keys, NumKeys, AppleHidUsbKbUsageKeyX);
 
-  if (HasOption && HasCommand && HasKeyP && HasKeyR) {
-    DEBUG ((DEBUG_INFO, "OCHK: CMD+OPT+P+R causes NVRAM reset\n"));
-    Context->PickerCommand = OcPickerResetNvram;
-  } else if (HasCommand && HasKeyR) {
+  if (HasCommand && HasKeyR) {
     DEBUG ((DEBUG_INFO, "OCHK: CMD+R causes recovery to boot\n"));
     Context->PickerCommand = OcPickerBootAppleRecovery;
   } else if (HasKeyX) {

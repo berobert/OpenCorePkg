@@ -183,14 +183,6 @@ OcRunBootPicker (
 
   OcImageLoaderActivate ();
 
-  //
-  // Reset NVRAM right away if requested by a key combination.
-  // This function should not return under normal conditions.
-  //
-  if (Context->PickerCommand == OcPickerResetNvram) {
-    return InternalSystemActionResetNvram ();
-  }
-
   KeyMap = OcAppleKeyMapInstallProtocols (FALSE);
   if (KeyMap == NULL) {
     DEBUG ((DEBUG_ERROR, "OCB: AppleKeyMap locate failure\n"));

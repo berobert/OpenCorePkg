@@ -28,7 +28,7 @@
 
   WARNING: This protocol is currently undergoing active design.
 **/
-#define OC_BOOT_ENTRY_PROTOCOL_REVISION  1
+#define OC_BOOT_ENTRY_PROTOCOL_REVISION  2
 
 /**
   Forward declaration of OC_BOOT_ENTRY_PROTOCOL structure.
@@ -39,10 +39,11 @@ typedef struct OC_BOOT_ENTRY_PROTOCOL_ OC_BOOT_ENTRY_PROTOCOL;
   Return list of OpenCore boot entries associated with filesystem.
 
   @param[in]  PickerContext     Picker context.
-  @param[in]  Device            The handle of the device to scan. NULL is passed in to
-                                request custom entries. All implementations must support a
-                                NULL input value, but may immediately return EFI_NOT_FOUND
-                                if they do not provide any custom entries.
+  @param[in]  Device            The handle of the device to scan. NULL is passed in to request
+                                custom entries (e.g. system actions), non-NULL for entries found
+                                by scanning a given device. All implementations must support NULL
+                                and non-NULL values, but may immediately return EFI_NOT_FOUND
+                                if they do not provide entries of the corresponding type.
   @param[out] BootEntries       List of boot entries associated with the filesystem.
                                 On EFI_SUCCESS BootEntries must be freed by the caller
                                 with FreePool after use, and each individual boot entry
@@ -64,8 +65,8 @@ typedef struct OC_BOOT_ENTRY_PROTOCOL_ OC_BOOT_ENTRY_PROTOCOL;
 typedef
 EFI_STATUS
 (EFIAPI *OC_GET_BOOT_ENTRIES)(
-  IN           OC_PICKER_CONTEXT        *PickerContext,
-  IN     CONST EFI_HANDLE               Device,
+  IN OUT         OC_PICKER_CONTEXT        *PickerContext,
+  IN     CONST EFI_HANDLE               Device OPTIONAL,
   OUT       OC_PICKER_ENTRY          **Entries,
   OUT       UINTN                    *NumEntries
   );
@@ -86,12 +87,88 @@ VOID
   );
 
 /**
-  The structure exposed by the OC_BOOT_ENTRY_PROTOCOL.
+  Perform hotkey action.
+
+  @param[in]  PickerContext     Picker context.
+  @param[in]  NumKeys           Number of keys held down. Recommended to check Keys and
+                                NumKeys using OcKeyMapHasKey.
+  @param[out] Modifiers         Keyboard modifiers.
+  @param[out] Keys              Keys held down. Recommended to check Keys and NumKeys
+                                using OcKeyMapHasKey.
+
+  @retval EFI_SUCCESS           At least one matching entry was found, and the list and
+                                count of boot entries has been returned.
+  @retval EFI_NOT_FOUND         No matching boot entries were found.
+  @retval EFI_OUT_OF_RESOURCES  Memory allocation failure.
+  @retval other                 An error returned by a sub-operation.
+**/
+typedef
+VOID
+(EFIAPI *OC_HOTKEY_ACTION)(
+  IN OUT OC_PICKER_CONTEXT  *Context,
+  IN UINTN               NumKeys,
+  IN APPLE_MODIFIER_MAP  Modifiers,
+  IN APPLE_KEY_CODE      *Keys
+  );
+
+/**
+  Action to perform for each boot entry protocol instance during OcConsumeBootEntryProtocol.
+
+  @param[in,out] PickerContext              Picker context.
+  @param[in]     BootEntryProtocol          Boot entry protocol.
+  @param[in]     Context                    Context.
+
+  @retval TRUE, proceed to next protocol instance.
+  @retval FALSE, do not proceed to next protocol instance.
+**/
+typedef
+BOOLEAN
+(EFIAPI *OC_CONSUME_ENTRY_PROTOCOL_ACTION)(
+  IN OUT OC_PICKER_CONTEXT  *PickerContext,
+  IN OC_BOOT_ENTRY_PROTOCOL *BootEntryProtocol,
+  IN VOID                   *Context
+  );
+
+/**
+  Consume boot entry protocol.
+
+  @param[in,out] PickerContext              Picker context.
+  @param[in]     EntryProtocolHandles       Boot entry protocol handles, or NULL if none.
+  @param[in]     EntryProtocolHandleCount   Count of boot entry protocol handles.
+  @param[in]     Action                     Action to perform for each protocol instance.
+  @param[in]     Context                    Context.
+**/
+VOID
+OcConsumeBootEntryProtocol (
+  IN OUT  OC_PICKER_CONTEXT                 *PickerContext,
+  IN      EFI_HANDLE                        *EntryProtocolHandles,
+  IN      UINTN                             EntryProtocolHandleCount,
+  IN      OC_CONSUME_ENTRY_PROTOCOL_ACTION  Action,
+  IN      VOID                              *Context
+  );
+
+/**
+  The structure exposed by OC_BOOT_ENTRY_PROTOCOL.
 **/
 struct OC_BOOT_ENTRY_PROTOCOL_ {
+  //
+  // Protocol revision.
+  //
   UINTN                   Revision;
+  //
+  // Get boot entries. Optional.
+  //
   OC_GET_BOOT_ENTRIES     GetBootEntries;
+  //
+  // Free boot entries.
+  // Optional, NULL may set here by a protocol provider if the returned
+  // entries are in statically allocated memory and do not need freeing.
+  //
   OC_FREE_BOOT_ENTRIES    FreeBootEntries;
+  //
+  // Hotkey action. Optional.
+  //
+  OC_HOTKEY_ACTION        HotkeyAction;
 };
 
 extern EFI_GUID  gOcBootEntryProtocolGuid;

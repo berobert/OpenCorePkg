@@ -391,15 +391,12 @@ OcParseLoadOptions (
   ASSERT (ParsedVars != NULL);
   *ParsedVars = NULL;
 
-  if ((LoadedImage->LoadOptionsSize % sizeof (CHAR16) != 0) || (LoadedImage->LoadOptionsSize > MAX_LOAD_OPTIONS_SIZE)) {
+  if (!VALID_LOAD_OPTIONS (LoadedImage->LoadOptionsSize, LoadedImage->LoadOptions)) {
     DEBUG ((DEBUG_ERROR, "OCB: Invalid LoadOptions (%p:%u)\n", LoadedImage->LoadOptions, LoadedImage->LoadOptionsSize));
     return EFI_INVALID_PARAMETER;
   }
 
-  if ((LoadedImage->LoadOptions == NULL) ||
-      (LoadedImage->LoadOptionsSize == 0) ||
-      (((CHAR16 *)LoadedImage->LoadOptions)[0] == CHAR_NULL))
-  {
+  if (!HAS_LOAD_OPTIONS (LoadedImage->LoadOptionsSize, LoadedImage->LoadOptions)) {
     DEBUG ((OC_TRACE_PARSE_VARS, "OCB: No LoadOptions (%p:%u)\n", LoadedImage->LoadOptions, LoadedImage->LoadOptionsSize));
     return EFI_NOT_FOUND;
   }
@@ -407,7 +404,7 @@ OcParseLoadOptions (
   Status = OcParseVars (LoadedImage->LoadOptions, ParsedVars, TRUE);
 
   if (Status == EFI_INVALID_PARAMETER) {
-    DEBUG ((DEBUG_ERROR, "OCB: Invalid LoadOptions (%p:%u)\n", LoadedImage->LoadOptions, LoadedImage->LoadOptionsSize));
+    DEBUG ((DEBUG_ERROR, "OCB: Failed to parse LoadOptions (%p:%u)\n", LoadedImage->LoadOptions, LoadedImage->LoadOptionsSize));
   } else if (Status == EFI_NOT_FOUND) {
     DEBUG ((DEBUG_WARN, "OCB: Empty LoadOptions\n"));
   }
